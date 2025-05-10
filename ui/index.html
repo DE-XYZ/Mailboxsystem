@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postsystem</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app" class="container">
+        <div class="postal-app" v-if="visible">
+            <div class="header">
+                <h1><i class="fas fa-envelope"></i> {{ locales.ui_title }}</h1>
+                <button class="close-btn" @click="closeUI"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="tabs">
+                <button :class="['tab-btn', { active: activeTab === 'inbox' }]" @click="activeTab = 'inbox'">
+                    <i class="fas fa-inbox"></i> {{ locales.ui_inbox }}
+                </button>
+                <button :class="['tab-btn', { active: activeTab === 'send' }]" @click="activeTab = 'send'">
+                    <i class="fas fa-paper-plane"></i> {{ locales.ui_send }}
+                </button>
+                <button :class="['tab-btn', { active: activeTab === 'account' }]" @click="activeTab = 'account'">
+                    <i class="fas fa-user"></i> {{ locales.ui_account }}
+                </button>
+            </div>
+            
+            <div class="content">
+                <!-- Inbox Tab -->
+                <div v-if="activeTab === 'inbox'" class="tab-content">
+                    <div v-if="!hasAccount" class="no-account">
+                        <p>{{ locales.no_account }}</p>
+                        <button @click="activeTab = 'account'" class="primary-btn">
+                            {{ locales.ui_create_account }}
+                        </button>
+                    </div>
+                    
+                    <div v-else class="inbox">
+                        <div v-if="mails.length === 0" class="no-mails">
+                            <p>{{ locales.ui_no_mail }}</p>
+                        </div>
+                        
+                        <div v-else class="mail-list">
+                            <div v-for="mail in mails" :key="mail.id" class="mail-item" :class="{ 'unread': !mail.delivered }">
+                                <div class="mail-header">
+                                    <div class="mail-type">
+                                        <i v-if="mail.type === 'letter'" class="fas fa-envelope"></i>
+                                        <i v-else class="fas fa-box"></i>
+                                    </div>
+                                    <div class="mail-info">
+                                        <h3>{{ mail.subject }}</h3>
+                                        <p>{{ locales.ui_from.replace('%s', mail.sender_address) }}</p>
+                                        <p class="mail-date">{{ formatDate(mail.sent_at) }}</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="mail-actions">
+                                    <button @click="viewMail(mail)" class="action-btn">
+                                        <i class="fas fa-eye"></i> {{ locales.ui_read }}
+                                    </button>
+                                    <button v-if="mail.type === 'package' && mail.delivered" @click="collectMail(mail)" class="action-btn collect">
+                                        <i class="fas fa-hand-holding"></i> {{ locales.ui_collect }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Send Tab -->
+                <div v-if="activeTab === 'send'" class="tab-content">
+                    <div v-if="!hasAccount" class="no-account">
+                        <p>{{ locales.no_account }}</p>
+                        <button @click="activeTab = 'account'" class="primary-btn">
+                            {{ locales.ui_create_account }}
+                        </button>
+                    </div>
+                    
+                    <div v-else class="send-options">
+                        <div class="send-tabs">
+                            <button :class="['send-tab', { active: sendType === 'letter' }]" @click="sendType = 'letter'">
+                                <i class="fas fa-envelope"></i> {{ locales.ui_send_letter }}
+                            </button>
+                            <button :class="['send-tab', { active: sendType === 'package' }]" @click="sendType = 'package'">
+                                <i class="fas fa-box"></i> {{ locales.ui_send_package }}
+                            </button>
+                        </div>
+                        
+                        <div class="send-form">
+                            <div class="form-group">
+                                <label for="recipient">{{ locales.ui_recipient }}</label>
+                                <input type="text" id="recipient" v-model="sendForm.recipient" placeholder="PS-1234">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="subject">{{ locales.ui_subject }}</label>
+                                <input type="text" id="subject" v-model="sendForm.subject" maxlength="100">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="content">{{ locales.ui_message }}</label>
+                                <textarea id="content" v-model="sendForm.content" rows="5"></textarea>
+                            </div>
+                            
+                            <!-- Package Items -->
+                            <div v-if="sendType === 'package'" class="package-items">
+                                <h3>{{ locales.ui_items }}</h3>
+                                
+                                <div class="inventory">
+                                    <div v-for="item in inventory" :key="item.name" class="inventory-item" @click="selectItem(item)">
+                                        <div class="item-info">
+                                            <h4>{{ item.label }}</h4>
+                                            <p>{{ item.count }} verfügbar</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="selected-items">
+                                    <h3>Ausgewählte Gegenstände</h3>
+                                    <div v-if="selectedItems.length === 0" class="no-items">
+                                        <p>Keine Gegenstände ausgewählt</p>
+                                    </div>
+                                    <div v-else>
+                                        <div v-for="(item, index) in selectedItems" :key="index" class="selected-item">
+                                            <div class="item-info">
+                                                <h4>{{ item.label }}</h4>
+                                                <p>Anzahl: {{ item.count }}</p>
+                                            </div>
+                                            <div class="item-actions">
+                                                <button @click="removeItem(index)" class="action-btn remove">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="cost-info">
+                                <p>{{ locales.ui_cost.replace('%s', ' + calculateCost()) }}</p>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button @click="sendMail" class="primary-btn">
+                                    <i class="fas fa-paper-plane"></i> {{ locales.ui_send_btn }}
+                                </button>
+                                <button @click="resetForm" class="secondary-btn">
+                                    <i class="fas fa-undo"></i> {{ locales.ui_cancel }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Account Tab -->
+                <div v-if="activeTab === 'account'" class="tab-content">
+                    <div v-if="!hasAccount" class="create-account">
+                        <h2>{{ locales.ui_create_account }}</h2>
+                        <p>Erstelle ein Postkonto, um Briefe und Pakete senden und empfangen zu können.</p>
+                        <button @click="createAccount" class="primary-btn">
+                            <i class="fas fa-user-plus"></i> {{ locales.ui_create }}
+                        </button>
+                    </div>
+                    
+                    <div v-else class="account-info">
+                        <h2>{{ locales.ui_account }}</h2>
+                        <div class="info-card">
+                            <p class="address">{{ locales.ui_your_address.replace('%s', account.address) }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mail View Modal -->
+        <div class="modal" v-if="viewingMail">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>{{ currentMail.subject }}</h2>
+                    <button class="close-btn" @click="closeMailView"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mail-details">
+                        <p>{{ locales.ui_from.replace('%s', currentMail.sender_address) }}</p>
+                        <p>{{ locales.ui_to.replace('%s', currentMail.recipient_address) }}</p>
+                        <p>{{ locales.ui_date.replace('%s', formatDate(currentMail.sent_at)) }}</p>
+                    </div>
+                    <div class="mail-content">
+                        <p>{{ currentMail.content }}</p>
+                    </div>
+                    <div v-if="currentMail.type === 'package' && currentMail.items" class="package-contents">
+                        <h3>Paketinhalt:</h3>
+                        <div class="package-items">
+                            <div v-for="item in parseItems(currentMail.items)" :key="item.name" class="package-item">
+                                <p>{{ item.label }} x{{ item.count }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="closeMailView" class="secondary-btn">
+                        <i class="fas fa-arrow-left"></i> {{ locales.ui_close }}
+                    </button>
+                    <button v-if="currentMail.type === 'package' && currentMail.delivered && !currentMail.collected" 
+                            @click="collectMail(currentMail)" class="primary-btn">
+                        <i class="fas fa-hand-holding"></i> {{ locales.ui_collect }}
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Item Selection Modal -->
+        <div class="modal" v-if="selectingItem">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>{{ selectingItemData.label }}</h2>
+                    <button class="close-btn" @click="cancelItemSelection"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="item-selection">
+                        <p>Verfügbar: {{ selectingItemData.count }}</p>
+                        <div class="quantity-selector">
+                            <button @click="decreaseQuantity" :disabled="itemQuantity <= 1" class="quantity-btn">-</button>
+                            <input type="number" v-model.number="itemQuantity" min="1" :max="selectingItemData.count">
+                            <button @click="increaseQuantity" :disabled="itemQuantity >= selectingItemData.count" class="quantity-btn">+</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="cancelItemSelection" class="secondary-btn">{{ locales.ui_cancel }}</button>
+                    <button @click="confirmItemSelection" class="primary-btn">Bestätigen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.2.37/vue.global.prod.js"></script>
+    <script src="js/script.js"></script>
+</body>
+</html>
